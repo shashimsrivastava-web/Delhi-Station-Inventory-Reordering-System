@@ -5,9 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node server.js",
     "lint": "eslint .",
-    "clean": "next clean"
+    "clean": "rm -rf .next"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

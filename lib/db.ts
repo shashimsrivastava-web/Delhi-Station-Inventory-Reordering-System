@@ -37,6 +37,8 @@ export interface StockMaster {
   image_url?: string;
   image_base64?: string;
   location?: string;
+  quantity_details?: string;
+  add_info?: string;
 }
 
 export interface StockTakingLog {
@@ -376,6 +378,8 @@ export function loadDatabase() {
     reorder_level: item.reorder_level ?? 0,
     max_quantity: item.max_quantity ?? 0,
     estimated_monthly_usage: item.estimated_monthly_usage ?? 0,
+    quantity_details: item.quantity_details ?? '',
+    add_info: item.add_info ?? '',
     ordering_channel: (item.ordering_channel as string) === 'Imported - Germany/Switzerland' ? 'Central Ordering Team' : item.ordering_channel
   }));
 

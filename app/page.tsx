@@ -343,7 +343,9 @@ export default function DelhiStationInventoryApp() {
     lead_time_days: 5,
     image_url: '',
     image_base64: '',
-    location: ''
+    location: '',
+    quantity_details: '',
+    add_info: ''
   });
 
   // Location search selected article
@@ -949,6 +951,9 @@ export default function DelhiStationInventoryApp() {
         { key: 'article_number', regex: /article\s*number|article\s*no|item\s*code|sku|article|code/i },
         { key: 'description', regex: /description|desc|item\s*name|name/i },
         { key: 'barcode', regex: /barcode|upc|ean|gtin/i },
+        { key: 'total_stock_quantity', regex: /total\s*stock\s*quantity|total\s*stock|stock\s*qty|actual\s*stock|current\s*stock|qty\s*count|stock\s*count/i },
+        { key: 'quantity_details', regex: /quantity\s*text|quantity\s*details|qty\s*text|qty\s*details|pkg\s*details|packaging\s*details|quantity|qty/i },
+        { key: 'add_info', regex: /add\s*info|additional\s*info|notes|remarks|remark|free\s*text|comment|comments/i },
         { key: 'smallest_unit_name', regex: /unit\s*name|smallest\s*unit|unit|uom/i },
         { key: 'units_per_box', regex: /units\s*per\s*box|units\/box|unit\s*per\s*box|qty\s*per\s*box/i },
         { key: 'boxes_per_pack', regex: /boxes\s*per\s*pack|boxes\/pack|box\s*per\s*pack/i },
@@ -958,7 +963,6 @@ export default function DelhiStationInventoryApp() {
         { key: 'max_quantity', regex: /max\s*quantity|maximum\s*qty|max\s*qty|max/i },
         { key: 'order_frequency_days', regex: /order\s*frequency|frequency|days/i },
         { key: 'order_volume', regex: /order\s*volume|order\s*qty|quantity\s*to\s*order|volume/i },
-        { key: 'total_stock_quantity', regex: /total\s*stock\s*quantity|total\s*stock|stock\s*qty/i },
         { key: 'ordering_channel', regex: /ordering\s*channel|channel|source/i },
         { key: 'lead_time_days', regex: /lead\s*time|leadtime|days/i },
         { key: 'location', regex: /location|area|room|bin|site/i },
@@ -1112,6 +1116,8 @@ export default function DelhiStationInventoryApp() {
       "Article Number",
       "Item Name",
       "Packaging Breakdown",
+      "Quantity Details",
+      "Add Info",
       "Actual Stock (Smallest Units)",
       "Projected Stock (Today)",
       "General Location",
@@ -1135,6 +1141,8 @@ export default function DelhiStationInventoryApp() {
         article.article_number,
         article.description,
         packagingBreakdown,
+        article.quantity_details || "",
+        article.add_info || "",
         article.currentStock,
         projectedStock,
         article.location || "",
@@ -3079,7 +3087,9 @@ export default function DelhiStationInventoryApp() {
                                   <th className="p-4">Article & Details</th>
                                   <th className="p-4">Barcode</th>
                                   <th className="p-4">Packaging Hierarchy</th>
-                                  <th className="p-4">Consumption</th>
+                                   <th className="p-4">Quantity Details</th>
+                                   <th className="p-4">Add Info</th>
+                                   <th className="p-4">Consumption</th>
                                   <th className="p-4">Threshold Limits</th>
                                   <th className="p-4">Ordering Route</th>
                                   <th className="p-4 text-right">Actions</th>
@@ -3172,6 +3182,12 @@ export default function DelhiStationInventoryApp() {
                                       </div>
                                     </td>
                                     <td className="p-4">
+                                      <div className="font-mono text-slate-700">{article.quantity_details || <span className="text-slate-300 italic">N/A</span>}</div>
+                                    </td>
+                                    <td className="p-4">
+                                      <div className="text-slate-700">{article.add_info || <span className="text-slate-300 italic">N/A</span>}</div>
+                                    </td>
+                                    <td className="p-4">
                                       <div className="space-y-0.5">
                                         <div>Monthly: <strong>{(article.estimated_monthly_usage ?? 0).toLocaleString()}</strong></div>
                                         <div className="text-slate-500">Burn: {article.dailyBurn.toFixed(1)}/day</div>
@@ -3258,6 +3274,8 @@ export default function DelhiStationInventoryApp() {
                         <th className="p-4">Article & Details</th>
                         <th className="p-4">Barcode</th>
                         <th className="p-4">Packaging Hierarchy</th>
+                        <th className="p-4">Quantity Details</th>
+                        <th className="p-4">Remarks / Add Info</th>
                         <th className="p-4">Consumption</th>
                         <th className="p-4">Threshold Limits</th>
                         <th className="p-4">Ordering Route</th>
@@ -3267,7 +3285,7 @@ export default function DelhiStationInventoryApp() {
                     <tbody className="divide-y divide-slate-100 text-xs">
                       {filteredArticles.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                          <td colSpan={10} className="p-8 text-center text-slate-400">
                             No matching stock articles found.
                           </td>
                         </tr>
@@ -3361,6 +3379,12 @@ export default function DelhiStationInventoryApp() {
                                   Total Pack: {(article.boxes_per_pack * article.units_per_box).toLocaleString()} {article.smallest_unit_name}s
                                 </div>
                               </div>
+                            </td>
+                            <td className="p-4">
+                              <div className="font-mono text-slate-700">{article.quantity_details || <span className="text-slate-300 italic">N/A</span>}</div>
+                            </td>
+                            <td className="p-4">
+                              <div className="text-slate-700">{article.add_info || <span className="text-slate-300 italic">N/A</span>}</div>
                             </td>
                             <td className="p-4">
                               <div className="space-y-0.5">
@@ -4518,6 +4542,29 @@ export default function DelhiStationInventoryApp() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Quantity Details (Short Text)</label>
+                  <input
+                    type="text"
+                    value={articleForm.quantity_details || ''}
+                    onChange={(e) => setArticleForm({ ...articleForm, quantity_details: e.target.value })}
+                    placeholder="e.g. Bulk pack / Box of 10"
+                    className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-semibold mb-1">Add Info / Notes (Short Text)</label>
+                  <input
+                    type="text"
+                    value={articleForm.add_info || ''}
+                    onChange={(e) => setArticleForm({ ...articleForm, add_info: e.target.value })}
+                    placeholder="e.g. Fragile / Standard stock"
+                    className="w-full border border-slate-200 p-2 rounded-lg bg-slate-50"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-slate-500 font-semibold mb-1">Item Image</label>
                 <div className="flex items-center gap-4">
@@ -4765,6 +4812,9 @@ export default function DelhiStationInventoryApp() {
                         { key: 'article_number', label: 'Article Number *', required: true, desc: 'Unique identifier for the stock item.' },
                         { key: 'description', label: 'Item Description *', required: true, desc: 'Name or description of the product.' },
                         { key: 'barcode', label: 'Barcode / EAN', required: false, desc: 'Optional UPC/EAN barcode.' },
+                        { key: 'total_stock_quantity', label: 'Total Stock Quantity (Numeric Count)', required: false, desc: 'Numeric quantity on hand in smallest units.' },
+                        { key: 'quantity_details', label: 'Quantity Text (Free Text)', required: false, desc: 'Text description for quantity e.g. "Box of 10", "100 sheets", "50kg bag".' },
+                        { key: 'add_info', label: 'Remarks / Notes (Free Text)', required: false, desc: 'Free text remarks, notes, or special handling instructions.' },
                         { key: 'smallest_unit_name', label: 'Smallest Unit Name', required: false, desc: 'E.g., Piece, Ampoule, Vial, Bottle (default: Piece).' },
                         { key: 'units_per_box', label: 'Units per Box', required: false, desc: 'How many smallest units fit in a Box (default: 1).' },
                         { key: 'boxes_per_pack', label: 'Boxes per Pack', required: false, desc: 'How many boxes fit in a Pack (default: 1).' },
@@ -4870,7 +4920,9 @@ export default function DelhiStationInventoryApp() {
                               <th className="py-2 px-3">Article No</th>
                               <th className="py-2 px-3">Description</th>
                               <th className="py-2 px-3">Barcode</th>
-                              <th className="py-2 px-3">Packaging</th>
+                              <th className="py-2 px-3">Quantity Text</th>
+                              <th className="py-2 px-3">Remarks / Notes</th>
+                              <th className="py-2 px-3">Stock Count</th>
                               <th className="py-2 px-3">Location</th>
                             </tr>
                           </thead>
@@ -4879,9 +4931,10 @@ export default function DelhiStationInventoryApp() {
                               const articleNum = item[columnMapping.article_number];
                               const desc = item[columnMapping.description];
                               const bar = item[columnMapping.barcode];
-                              const unitName = item[columnMapping.smallest_unit_name] || 'Piece';
-                              const unitsBox = item[columnMapping.units_per_box] || 1;
-                              const boxesPack = item[columnMapping.boxes_per_pack] || 1;
+                              const qtyText = item[columnMapping.quantity_details];
+                              const remarks = item[columnMapping.add_info];
+                              const totalQty = item[columnMapping.total_stock_quantity];
+                              const loc = item[columnMapping.location];
                               
                               return (
                                 <tr key={idx} className="hover:bg-slate-50/50">
@@ -4894,11 +4947,17 @@ export default function DelhiStationInventoryApp() {
                                   <td className="py-2.5 px-3 font-mono text-slate-500">
                                     {bar ? String(bar) : <span className="text-slate-300 italic">Empty</span>}
                                   </td>
-                                  <td className="py-2.5 px-3 text-slate-500 text-[9px] font-sans">
-                                    {unitName} ({unitsBox} / box, {boxesPack} / pack)
+                                  <td className="py-2.5 px-3 text-slate-600 font-sans">
+                                    {qtyText ? String(qtyText) : <span className="text-slate-300 italic">N/A</span>}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-600 font-sans max-w-[140px] truncate">
+                                    {remarks ? String(remarks) : <span className="text-slate-300 italic">N/A</span>}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
+                                    {totalQty !== undefined && totalQty !== '' ? String(totalQty) : <span className="text-slate-300 italic">0</span>}
                                   </td>
                                   <td className="py-2.5 px-3 text-slate-500 font-mono">
-                                    {item[columnMapping.location] ? String(item[columnMapping.location]) : <span className="text-slate-300 italic">N/A</span>}
+                                    {loc ? String(loc) : <span className="text-slate-300 italic">N/A</span>}
                                   </td>
                                 </tr>
                               );
@@ -4942,6 +5001,7 @@ export default function DelhiStationInventoryApp() {
                             mappedItem.min_quantity = item[columnMapping.min_quantity] !== undefined && item[columnMapping.min_quantity] !== '' ? Number(item[columnMapping.min_quantity]) : 0;
                             mappedItem.reorder_level = item[columnMapping.reorder_level] !== undefined && item[columnMapping.reorder_level] !== '' ? Number(item[columnMapping.reorder_level]) : 0;
                             mappedItem.max_quantity = item[columnMapping.max_quantity] !== undefined && item[columnMapping.max_quantity] !== '' ? Number(item[columnMapping.max_quantity]) : 0;
+                            mappedItem.total_stock_quantity = item[columnMapping.total_stock_quantity] !== undefined && item[columnMapping.total_stock_quantity] !== '' ? Number(item[columnMapping.total_stock_quantity]) : 0;
                             mappedItem.order_volume = item[columnMapping.order_volume] !== undefined && item[columnMapping.order_volume] !== '' ? Number(item[columnMapping.order_volume]) : 0;
                             
                             const rawChannel = String(item[columnMapping.ordering_channel] ?? '').trim().toLowerCase();
@@ -4949,6 +5009,8 @@ export default function DelhiStationInventoryApp() {
                             
                             mappedItem.lead_time_days = item[columnMapping.lead_time_days] !== undefined && item[columnMapping.lead_time_days] !== '' ? Number(item[columnMapping.lead_time_days]) : 5;
                             mappedItem.location = String(item[columnMapping.location] ?? '').trim();
+                            mappedItem.quantity_details = String(item[columnMapping.quantity_details] ?? '').trim();
+                            mappedItem.add_info = String(item[columnMapping.add_info] ?? '').trim();
                             mappedItem.image_url = '';
                             mappedItem.image_base64 = '';
                             return mappedItem;
