@@ -49,7 +49,9 @@ import {
   LogOut,
   Menu,
   Upload,
-  Maximize2
+  Maximize2,
+  Save,
+  FileText
 } from 'lucide-react';
 import {
   StockMaster,
@@ -296,7 +298,7 @@ export default function DelhiStationInventoryApp() {
   const [channelFilter, setChannelFilter] = useState<'All' | 'Central' | 'Local'>('All');
   const [stockFilter, setStockFilter] = useState<'All' | 'Healthy' | 'Low' | 'Action Needed' | 'Suppressed'>('All');
   const [locationFilter, setLocationFilter] = useState<string>('All');
-  const [stockViewMode, setStockViewMode] = useState<'table' | 'grouped'>('table');
+  const [stockViewMode, setStockViewMode] = useState<'gallery' | 'table' | 'grouped'>('gallery');
   const [collapsedLocations, setCollapsedLocations] = useState<Record<string, boolean>>({});
 
   // Scanner Simulator States
@@ -468,14 +470,19 @@ export default function DelhiStationInventoryApp() {
   };
 
   const updateArticlePhoto = (articleNumber: string, base64Str: string | null) => {
+    let updatedItem: StockMaster | undefined;
     const updatedMaster = db.stockMaster.map(item => {
       if (item.article_number === articleNumber) {
-        return { ...item, image_base64: base64Str || undefined, image_url: base64Str ? undefined : item.image_url };
+        updatedItem = { ...item, image_base64: base64Str || undefined, image_url: base64Str ? undefined : item.image_url };
+        return updatedItem;
       }
       return item;
     });
     const newDb = { ...db, stockMaster: updatedMaster };
     updateDb(newDb);
+    if (updatedItem) {
+      saveStockMasterToFirestore(updatedItem);
+    }
     if (activePhotoModalArticle && activePhotoModalArticle.article_number === articleNumber) {
       const updated = updatedMaster.find(m => m.article_number === articleNumber) || null;
       setActivePhotoModalArticle(updated);
@@ -564,13 +571,10 @@ export default function DelhiStationInventoryApp() {
   });
 
 
-  // Save to LocalStorage and Firestore whenever DB changes
+  // Save to LocalStorage whenever DB changes
   const updateDb = (newDb: typeof db) => {
     setDb(newDb);
     saveDatabase(newDb);
-    newDb.stockMaster.forEach(item => saveStockMasterToFirestore(item));
-    newDb.stockTakingLog.forEach(log => saveStockLogToFirestore(log));
-    newDb.purchaseOrders.forEach(po => savePurchaseOrderToFirestore(po));
   };
 
   // Beep Sound Maker using AudioContext (Anti-slop, realistic scanner beep)
@@ -751,10 +755,14 @@ export default function DelhiStationInventoryApp() {
       discrepancy_status: status
     };
 
-    // Update the total stock quantity in stockMaster
+    // Update the total stock quantity and free text quantity_details in stockMaster
     const updatedMaster = db.stockMaster.map(item => {
       if (item.article_number === scannedArticle.article_number) {
-        return { ...item, total_stock_quantity: totalCalculatedUnits };
+        return { 
+          ...item, 
+          total_stock_quantity: totalCalculatedUnits,
+          quantity_details: scannedArticle.quantity_details || ''
+        };
       }
       return item;
     });
@@ -1651,6 +1659,8 @@ export default function DelhiStationInventoryApp() {
       <>
         <PublicSearch 
           stockMaster={db.stockMaster} 
+          stockTakingLog={db.stockTakingLog}
+          purchaseOrders={db.purchaseOrders}
           onLoginClick={() => setIsLoginModalOpen(true)}
         />
         {isLoginModalOpen && (
@@ -2930,6 +2940,17 @@ export default function DelhiStationInventoryApp() {
                 {/* View Mode Toggle */}
                 <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 ml-auto">
                   <button
+                    onClick={() => setStockViewMode('gallery')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer ${
+                      stockViewMode === 'gallery'
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Gallery Cards View with Article Pictures & Status Markers"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" /> Gallery
+                  </button>
+                  <button
                     onClick={() => setStockViewMode('table')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer ${
                       stockViewMode === 'table'
@@ -2944,7 +2965,7 @@ export default function DelhiStationInventoryApp() {
                     onClick={() => setStockViewMode('grouped')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer ${
                       stockViewMode === 'grouped'
-                        ? 'bg-amber-500 text-white shadow-xs'
+                        ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-500 hover:text-slate-800'
                     }`}
                     title="Group Stock by Location"
@@ -3015,8 +3036,258 @@ export default function DelhiStationInventoryApp() {
                </div>
              )}
 
-            {/* Render View: Grouped by Location vs Table View */}
-            {stockViewMode === 'grouped' ? (
+            {/* Render View: Gallery Cards vs Grouped by Location vs Data Grid Table */}
+            {stockViewMode === 'gallery' ? (
+              <div className="space-y-4">
+                {filteredArticles.length === 0 ? (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 shadow-sm">
+                    <Package className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <h3 className="text-sm font-bold text-slate-700">No stock articles found</h3>
+                    <p className="text-xs text-slate-400 mt-1 font-sans">Try adjusting your search query or filter options.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                    {filteredArticles.map((article, index) => {
+                      const photoSrc = article.image_base64 || article.image_url;
+                      const isSelected = selectedArticleNumbers.includes(article.article_number);
+                      
+                      // Status marker color calculation:
+                      // Green: Healthy stock
+                      // Yellow: Low stock or Suppressed (PO in transit)
+                      // Red: Action Needed / Critical low / Out of stock
+                      let statusBadgeText = '🟢 Healthy Stock';
+                      let borderAccent = 'border-t-emerald-500 hover:border-emerald-600';
+                      let bgCard = 'bg-white';
+                      let badgeBg = 'bg-emerald-500 text-white border-emerald-400';
+                      let stockTextCol = 'text-emerald-700';
+
+                      if (article.statusLabel === 'Action Needed' || article.currentStock <= article.min_quantity || article.currentStock === 0) {
+                        statusBadgeText = '🔴 Action Needed';
+                        borderAccent = 'border-t-red-500 hover:border-red-600';
+                        bgCard = 'bg-red-50/20';
+                        badgeBg = 'bg-red-600 text-white border-red-500 animate-pulse';
+                        stockTextCol = 'text-red-700';
+                      } else if (article.statusLabel === 'Suppressed') {
+                        statusBadgeText = '⏳ Suppressed (PO Active)';
+                        borderAccent = 'border-t-amber-500 hover:border-amber-600';
+                        bgCard = 'bg-amber-50/20';
+                        badgeBg = 'bg-amber-500 text-white border-amber-400';
+                        stockTextCol = 'text-amber-800';
+                      } else if (article.statusLabel === 'Low' || article.currentStock <= article.reorder_level) {
+                        statusBadgeText = '🟡 Low Stock';
+                        borderAccent = 'border-t-amber-500 hover:border-amber-600';
+                        bgCard = 'bg-amber-50/20';
+                        badgeBg = 'bg-amber-500 text-white border-amber-400';
+                        stockTextCol = 'text-amber-700';
+                      }
+
+                      // Gauge percentage
+                      const maxTarget = Math.max(article.max_quantity || 1, article.reorder_level || 1, 1);
+                      const pct = Math.min(100, Math.round((article.currentStock / maxTarget) * 100));
+
+                      return (
+                        <div 
+                          key={`gallery-${article.article_number}-${index}`}
+                          className={`group border border-slate-200 border-t-4 ${borderAccent} rounded-2xl ${bgCard} shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between overflow-hidden relative`}
+                        >
+                          <div>
+                            {/* Top Picture Container */}
+                            <div className="relative h-44 w-full bg-slate-900 overflow-hidden flex items-center justify-center group/img">
+                              {photoSrc ? (
+                                <img 
+                                  src={photoSrc} 
+                                  alt={article.description} 
+                                  className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
+                                  onError={(e) => {
+                                    (e.target as any).src = "https://images.unsplash.com/photo-1513542789411-b6a5d4f31634?w=400&auto=format&fit=crop&q=80";
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 flex flex-col items-center justify-center p-4 text-center">
+                                  <Package className="w-10 h-10 text-slate-600 mb-1" />
+                                  <span className="text-[11px] text-slate-400 font-medium">No Image Available</span>
+                                </div>
+                              )}
+
+                              {/* Dark gradient overlay for text readability */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+
+                              {/* Bulk Checkbox Overlay */}
+                              <div className="absolute top-2.5 left-2.5 z-10">
+                                <input 
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    if (e.target.checked) {
+                                      setSelectedArticleNumbers([...selectedArticleNumbers, article.article_number]);
+                                    } else {
+                                      setSelectedArticleNumbers(selectedArticleNumbers.filter(num => num !== article.article_number));
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400 cursor-pointer shadow-xs bg-white/90"
+                                />
+                              </div>
+
+                              {/* Color-Coded Health Status Marker (Green, Yellow, or Red) */}
+                              <div className="absolute top-2.5 right-2.5 z-10">
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold shadow-md flex items-center gap-1 border ${badgeBg}`}>
+                                  {statusBadgeText}
+                                </span>
+                              </div>
+
+                              {/* Photo & Camera trigger overlay */}
+                              <div className="absolute bottom-2.5 right-2.5 z-10 flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActivePhotoModalArticle(article);
+                                    startPhotoCamera();
+                                  }}
+                                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-extrabold px-2.5 py-1 rounded-lg shadow-md flex items-center gap-1 transition border border-amber-300 cursor-pointer active:scale-95"
+                                  title="Activate device camera to take live item photo"
+                                >
+                                  <Camera className="w-3 h-3 text-slate-950" />
+                                  <span>Camera</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActivePhotoModalArticle(article);
+                                  }}
+                                  className="bg-black/70 hover:bg-black text-white text-[10px] font-bold px-2 py-1 rounded-lg backdrop-blur-xs flex items-center gap-1 transition border border-white/20 cursor-pointer"
+                                  title={photoSrc ? "View or edit stored photo" : "Upload or manage photo"}
+                                >
+                                  {photoSrc ? "View Photo" : "+ Add"}
+                                </button>
+                              </div>
+
+                              {/* Location tag overlay */}
+                              <div className="absolute bottom-2.5 left-2.5 z-10 max-w-[65%] truncate">
+                                <span className="bg-slate-900/80 backdrop-blur-xs text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded text-[10px] font-bold font-mono flex items-center gap-1 truncate">
+                                  <MapPin className="w-2.5 h-2.5 shrink-0 text-indigo-400" />
+                                  <span className="truncate">{article.location || 'UNALLOCATED'}</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Card Content Body */}
+                            <div className="p-4 space-y-3">
+                              {/* Article Number Header & Barcode */}
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-bold text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200 tracking-wide">
+                                  Art #{article.article_number}
+                                </span>
+                                {article.barcode && (
+                                  <span className="font-mono text-[10px] text-slate-400 flex items-center gap-1 shrink-0">
+                                    <Barcode className="w-3 h-3 text-slate-400" />
+                                    {article.barcode}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Item Description */}
+                              <h4 className="font-bold text-sm text-slate-900 line-clamp-2 leading-snug hover:text-amber-600 transition" title={article.description}>
+                                {article.description}
+                              </h4>
+
+                              {/* Prominent Quantity In Stock Display */}
+                              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">In Stock Quantity</span>
+                                  <div className="text-right">
+                                    <span className={`font-mono text-2xl font-black ${stockTextCol}`}>
+                                      {article.currentStock.toLocaleString()}
+                                    </span>
+                                    <span className="text-xs font-semibold text-slate-500 ml-1">
+                                      {article.smallest_unit_name || 'units'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Free Text Quantity Details or Notes */}
+                                {(article.quantity_details || article.add_info) && (
+                                  <div className="text-[11px] text-slate-600 font-sans border-t border-slate-200/60 pt-1.5 flex flex-col gap-0.5">
+                                    {article.quantity_details && (
+                                      <p className="line-clamp-1 font-medium text-slate-700">📦 {article.quantity_details}</p>
+                                    )}
+                                    {article.add_info && (
+                                      <p className="line-clamp-1 italic text-slate-500 text-[10px]">💬 {article.add_info}</p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Stock Gauge Progress Bar */}
+                                <div className="space-y-1 pt-0.5">
+                                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden flex">
+                                    <div 
+                                      className={`h-full transition-all duration-300 ${
+                                        stockTextCol.includes('red') ? 'bg-red-500' :
+                                        stockTextCol.includes('amber') ? 'bg-amber-500' :
+                                        'bg-emerald-500'
+                                      }`}
+                                      style={{ width: `${Math.max(5, pct)}%` }}
+                                    />
+                                  </div>
+                                  <div className="flex justify-between text-[9px] font-mono text-slate-400">
+                                    <span>Min: {article.min_quantity}</span>
+                                    <span>Reorder: {article.reorder_level}</span>
+                                    <span>Max: {article.max_quantity}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Footer Actions */}
+                          <div className="p-3 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between gap-2 mt-1">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleOpenEditModal(article)}
+                                className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                                title="Edit Stock Item"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteModal({
+                                  isOpen: true,
+                                  type: 'article',
+                                  id: article.article_number,
+                                  title: 'Delete Article',
+                                  description: `Are you sure you want to delete article ${article.article_number} (${article.description})?`
+                                })}
+                                className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                                title="Delete Article"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <button
+                              onClick={() => handleQuickOrder(article)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                                stockTextCol.includes('red')
+                                  ? 'bg-red-600 hover:bg-red-700 text-white' 
+                                  : stockTextCol.includes('amber')
+                                  ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                                  : 'bg-slate-800 hover:bg-slate-900 text-white'
+                              }`}
+                              title="Create Purchase Order for this item"
+                            >
+                              <Truck className="w-3.5 h-3.5" />
+                              {stockTextCol.includes('red') ? 'Reorder Now' : 'Quick PO'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : stockViewMode === 'grouped' ? (
               <div className="space-y-6">
                 {articlesByLocation.length === 0 ? (
                   <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">
@@ -3654,19 +3925,65 @@ export default function DelhiStationInventoryApp() {
                       </div>
                     </div>
 
-                    {/* Packaging Hierarchy Specs Box */}
-                    <div className="p-3 bg-amber-50/50 rounded-xl grid grid-cols-3 gap-3 text-xs border border-amber-100/50">
-                      <div>
-                        <span className="text-slate-400 block">Boxes per Pack</span>
-                        <strong className="text-slate-800">{scannedArticle.boxes_per_pack} boxes</strong>
+                    {/* Packaging Hierarchy Specs & Free Text Specs Box */}
+                    <div className="p-3 bg-amber-50/60 rounded-xl space-y-2 border border-amber-200/60">
+                      <div className="grid grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Boxes per Pack</span>
+                          <strong className="text-slate-900 font-semibold">{scannedArticle.boxes_per_pack || 1} boxes</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Units per Box / Pad</span>
+                          <strong className="text-slate-900 font-semibold">{scannedArticle.units_per_box || 1} {scannedArticle.smallest_unit_name}s</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider">Units per Pack</span>
+                          <strong className="text-amber-800 font-bold">{((scannedArticle.boxes_per_pack ?? 1) * (scannedArticle.units_per_box ?? 1)).toLocaleString()} units</strong>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-slate-400 block">Units per Box</span>
-                        <strong className="text-slate-800">{scannedArticle.units_per_box} {scannedArticle.smallest_unit_name}s</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Units per Pack</span>
-                        <strong className="text-amber-800">{((scannedArticle.boxes_per_pack ?? 0) * (scannedArticle.units_per_box ?? 0)).toLocaleString()} units</strong>
+
+                      {/* Editable Quantity Free Text Spec & Remarks */}
+                      <div className="border-t border-amber-200/60 pt-2 flex flex-col gap-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
+                            ✏️ Quantity & Packaging Spec (Editable Free Text):
+                          </span>
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                            Editable
+                          </span>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={scannedArticle.quantity_details || ''}
+                            onChange={(e) => setScannedArticle({ ...scannedArticle, quantity_details: e.target.value })}
+                            placeholder="e.g. 1 Pack = 10 Boxes, 1 Box = 50 Sheets (or custom recount notes)"
+                            className="flex-1 text-xs font-sans p-2 rounded-lg border border-amber-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedMaster = db.stockMaster.map(item => 
+                                item.article_number === scannedArticle.article_number 
+                                  ? { ...item, quantity_details: scannedArticle.quantity_details || '' } 
+                                  : item
+                              );
+                              updateDb({ ...db, stockMaster: updatedMaster });
+                              const updatedItem = updatedMaster.find(item => item.article_number === scannedArticle.article_number);
+                              if (updatedItem) saveStockMasterToFirestore(updatedItem);
+                              alert(`Updated Quantity Spec for Article ${scannedArticle.article_number}!`);
+                            }}
+                            className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold rounded-lg transition shrink-0 cursor-pointer shadow-2xs flex items-center gap-1"
+                            title="Save Quantity Free Text Spec directly to Stock Master"
+                          >
+                            <Save className="w-3 h-3" /> Save Spec
+                          </button>
+                        </div>
+                        {scannedArticle.add_info && (
+                          <p className="text-slate-600 text-[11px] italic pt-0.5">
+                            💬 Remarks: {scannedArticle.add_info}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -3680,44 +3997,86 @@ export default function DelhiStationInventoryApp() {
                     </div>
 
                     {/* Physical Count entry form */}
-                    <div className="space-y-3">
-                      <h4 className="font-bold text-xs text-slate-900 uppercase tracking-wider">1. Enter Recount Quantities</h4>
+                    <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>1. Enter Recount Quantities</span>
+                        </h4>
+                      </div>
+
+                      {/* Quantity Free Text Field in Recount Section */}
+                      <div className="bg-white p-3 rounded-lg border border-amber-200/80 shadow-2xs space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                            <FileText className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Quantity & Packaging Free Text (Editable Spec & Recount Notes):</span>
+                          </label>
+                          <span className="text-[10px] text-amber-800 font-mono bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            Auto-saved on Stock Count submit
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          value={scannedArticle.quantity_details || ''}
+                          onChange={(e) => setScannedArticle({ ...scannedArticle, quantity_details: e.target.value })}
+                          placeholder="e.g. 1 Pack = 10 Boxes, 1 Box = 50 Sheets or custom unit recount notes"
+                          className="w-full text-xs font-sans font-medium border border-slate-300 p-2 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 text-slate-900"
+                        />
+                        <p className="text-[10px] text-slate-400">
+                          Edit free-text packaging spec or enter specific breakdown notes for this recount session.
+                        </p>
+                      </div>
                       
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Packs</label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs space-y-1">
+                          <label className="block text-[11px] font-bold text-slate-700">
+                            Packs ({scannedArticle.boxes_per_pack || 1} boxes/pack)
+                          </label>
                           <input
                             type="number"
                             min="0"
                             value={scanPacks || ''}
                             onChange={(e) => setScanPacks(Math.max(0, parseInt(e.target.value) || 0))}
                             placeholder="0"
-                            className="w-full text-sm font-mono border border-slate-200 p-2 rounded-lg bg-slate-50 focus:bg-white focus:outline-none"
+                            className="w-full text-sm font-mono font-bold border border-slate-200 p-2 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
                           />
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            = {((scannedArticle.boxes_per_pack || 1) * (scannedArticle.units_per_box || 1)).toLocaleString()} units/pack
+                          </span>
                         </div>
 
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Boxes</label>
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs space-y-1">
+                          <label className="block text-[11px] font-bold text-slate-700">
+                            Boxes / Pads ({scannedArticle.units_per_box || 1} units/box)
+                          </label>
                           <input
                             type="number"
                             min="0"
                             value={scanBoxes || ''}
                             onChange={(e) => setScanBoxes(Math.max(0, parseInt(e.target.value) || 0))}
                             placeholder="0"
-                            className="w-full text-sm font-mono border border-slate-200 p-2 rounded-lg bg-slate-50 focus:bg-white focus:outline-none"
+                            className="w-full text-sm font-mono font-bold border border-slate-200 p-2 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
                           />
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            = {scannedArticle.units_per_box || 1} units/box or pad
+                          </span>
                         </div>
 
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-500 mb-1">Smallest Units</label>
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs space-y-1">
+                          <label className="block text-[11px] font-bold text-slate-700">
+                            Loose Units ({scannedArticle.smallest_unit_name || 'Piece'})
+                          </label>
                           <input
                             type="number"
                             min="0"
                             value={scanUnits || ''}
                             onChange={(e) => setScanUnits(Math.max(0, parseInt(e.target.value) || 0))}
                             placeholder="0"
-                            className="w-full text-sm font-mono border border-slate-200 p-2 rounded-lg bg-slate-50 focus:bg-white focus:outline-none"
+                            className="w-full text-sm font-mono font-bold border border-slate-200 p-2 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
                           />
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            Individual loose units
+                          </span>
                         </div>
                       </div>
                     </div>
